@@ -2,6 +2,8 @@
 import { useState } from "react";
 import { Zap, ArrowRight, Loader2 } from "lucide-react";
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -14,20 +16,17 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const response = await fetch(
-        "http://localhost:5000/api/auth/login",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ email, password }),
-        }
-      );
+      const response = await fetch(`${API_URL}/api/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password }),
+      });
 
       const result = await response.json();
 
-      if (!response.ok) {
+      if (!response.ok || !result.success) {
         throw new Error(result.message || "Login failed");
       }
 
@@ -68,7 +67,9 @@ export default function Login() {
 
           <form onSubmit={handleLogin} className="mt-8 space-y-5">
             <div>
-              <label className="block text-sm mb-2">Email address</label>
+              <label className="block text-sm mb-2">
+                Email address
+              </label>
               <input
                 type="email"
                 value={email}
@@ -80,7 +81,9 @@ export default function Login() {
             </div>
 
             <div>
-              <label className="block text-sm mb-2">Password</label>
+              <label className="block text-sm mb-2">
+                Password
+              </label>
               <input
                 type="password"
                 value={password}

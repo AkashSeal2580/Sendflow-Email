@@ -12,7 +12,8 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
-const API = "http://localhost:5000/api";
+const API =
+  import.meta.env.VITE_API_BASE_URL || "https://sendflow-email.onrender.com/api";
 
 interface Campaign {
   id: string;

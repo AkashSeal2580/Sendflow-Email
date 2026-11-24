@@ -59,7 +59,7 @@ export default function Dashboard() {
       }
 
       const response = await fetch(
-        "http://localhost:5000/api/emails/stats",
+       `${import.meta.env.VITE_API_BASE_URL || "https://sendflow-email.onrender.com/api"}/emails/stats`,
         {
           headers: {
             Authorization: `Bearer ${token}`,

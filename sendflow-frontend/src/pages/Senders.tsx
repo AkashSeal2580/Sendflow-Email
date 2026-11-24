@@ -15,6 +15,8 @@ interface Sender {
   createdAt: string;
 }
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 const initialForm = {
   name: "",
   email: "",
@@ -36,7 +38,6 @@ export default function Senders() {
 
   const token = localStorage.getItem("sendflow_token");
 
-  // Fetch all senders
   async function fetchSenders() {
     try {
       setLoading(true);
@@ -46,7 +47,7 @@ export default function Senders() {
         throw new Error("Please login again.");
       }
 
-      const response = await fetch("http://localhost:5000/api/senders", {
+      const response = await fetch(`${API_URL}/api/senders`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -70,7 +71,6 @@ export default function Senders() {
     fetchSenders();
   }, []);
 
-  // Handle form input changes
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     setForm((previous) => ({
       ...previous,
@@ -78,7 +78,6 @@ export default function Senders() {
     }));
   }
 
-  // Add new sender
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setFormError("");
@@ -91,7 +90,7 @@ export default function Senders() {
     try {
       setSaving(true);
 
-      const response = await fetch("http://localhost:5000/api/senders", {
+      const response = await fetch(`${API_URL}/api/senders`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -122,7 +121,6 @@ export default function Senders() {
     }
   }
 
-  // Delete sender
   async function handleDelete(senderId: string) {
     const confirmed = window.confirm(
       "Are you sure you want to delete this sender?"
@@ -138,7 +136,7 @@ export default function Senders() {
       }
 
       const response = await fetch(
-        `http://localhost:5000/api/senders/${senderId}`,
+        `${API_URL}/api/senders/${senderId}`,
         {
           method: "DELETE",
           headers: {
@@ -165,7 +163,6 @@ export default function Senders() {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <div className="flex justify-between items-end gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Sender management</h1>
@@ -186,14 +183,12 @@ export default function Senders() {
         </button>
       </div>
 
-      {/* Loading */}
       {loading && (
         <div className="panel p-6 text-center muted">
           Loading senders...
         </div>
       )}
 
-      {/* Error */}
       {error && (
         <div className="panel p-5 text-red-400">
           {error}
@@ -203,7 +198,6 @@ export default function Senders() {
         </div>
       )}
 
-      {/* Empty State */}
       {!loading && !error && senders.length === 0 && (
         <div className="panel p-8 text-center">
           <Mail size={32} className="mx-auto muted" />
@@ -214,7 +208,6 @@ export default function Senders() {
         </div>
       )}
 
-      {/* Sender Cards */}
       {!loading && !error && senders.length > 0 && (
         <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
           {senders.map((sender) => (
@@ -239,7 +232,6 @@ export default function Senders() {
               </div>
 
               <div className="font-semibold mt-4">{sender.name}</div>
-
               <div className="muted text-sm mt-1">{sender.email}</div>
 
               <div className="mt-4">
@@ -260,7 +252,6 @@ export default function Senders() {
         </div>
       )}
 
-      {/* Add Sender Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
           <div className="panel w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
@@ -284,42 +275,12 @@ export default function Senders() {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               {[
-                {
-                  name: "name",
-                  label: "Sender Name",
-                  placeholder: "Akash",
-                  type: "text",
-                },
-                {
-                  name: "email",
-                  label: "Email Address",
-                  placeholder: "you@gmail.com",
-                  type: "email",
-                },
-                {
-                  name: "host",
-                  label: "SMTP Host",
-                  placeholder: "smtp.gmail.com",
-                  type: "text",
-                },
-                {
-                  name: "port",
-                  label: "SMTP Port",
-                  placeholder: "587",
-                  type: "number",
-                },
-                {
-                  name: "username",
-                  label: "SMTP Username",
-                  placeholder: "you@gmail.com",
-                  type: "text",
-                },
-                {
-                  name: "password",
-                  label: "SMTP App Password",
-                  placeholder: "Enter app password",
-                  type: "password",
-                },
+                { name: "name", label: "Sender Name", placeholder: "Akash", type: "text" },
+                { name: "email", label: "Email Address", placeholder: "you@gmail.com", type: "email" },
+                { name: "host", label: "SMTP Host", placeholder: "smtp.gmail.com", type: "text" },
+                { name: "port", label: "SMTP Port", placeholder: "587", type: "number" },
+                { name: "username", label: "SMTP Username", placeholder: "you@gmail.com", type: "text" },
+                { name: "password", label: "SMTP App Password", placeholder: "Enter app password", type: "password" },
               ].map((field) => (
                 <div key={field.name}>
                   <label className="block text-sm mb-2 font-medium">
@@ -359,10 +320,7 @@ export default function Senders() {
                 >
                   {saving ? (
                     <>
-                      <Loader2
-                        size={15}
-                        className="inline mr-2 animate-spin"
-                      />
+                      <Loader2 size={15} className="inline mr-2 animate-spin" />
                       Connecting...
                     </>
                   ) : (
