@@ -1,0 +1,78 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String     @id @default(cuid())
+  name      String
+  email     String     @unique
+  password  String
+  senders   Sender[]
+  campaigns Campaign[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model Sender {
+  id         String     @id @default(cuid())
+  name       String
+  email      String
+  host       String
+  port       Int
+  username   String
+  password   String
+  status     String     @default("Disconnected")
+  dailyLimit Int        @default(100)
+  userId     String
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emails     Email[]
+  campaigns  Campaign[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  @@index([userId])
+}
+
+model Campaign {
+  id          String    @id @default(cuid())
+  name        String
+  subject     String
+  content     String    @db.LongText
+  status      String    @default("Draft")
+  scheduledAt DateTime?
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  senderId    String?
+  sender      Sender?   @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  emails      Email[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([senderId])
+}
+
+model Email {
+  id          String    @id @default(cuid())
+  recipient   String
+  subject     String
+  status      String    @default("Scheduled")
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  error       String?   @db.Text
+  campaignId  String?
+  senderId    String?
+  campaign    Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  sender      Sender?   @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([campaignId])
+  @@index([senderId])
+  @@index([status])
+}
