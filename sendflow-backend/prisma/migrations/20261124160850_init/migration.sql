@@ -1,4 +1,5 @@
--- CreateTable
+
+-- CreateTable: User
 CREATE TABLE `User` (
     `id` VARCHAR(191) NOT NULL,
     `name` VARCHAR(191) NOT NULL,
@@ -11,7 +12,7 @@ CREATE TABLE `User` (
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- CreateTable
+-- CreateTable: Sender
 CREATE TABLE `Sender` (
     `id` VARCHAR(191) NOT NULL,
     `name` VARCHAR(191) NOT NULL,
@@ -30,7 +31,7 @@ CREATE TABLE `Sender` (
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- CreateTable
+-- CreateTable: Campaign
 CREATE TABLE `Campaign` (
     `id` VARCHAR(191) NOT NULL,
     `name` VARCHAR(191) NOT NULL,
@@ -46,7 +47,7 @@ CREATE TABLE `Campaign` (
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- CreateTable
+-- CreateTable: Email
 CREATE TABLE `Email` (
     `id` VARCHAR(191) NOT NULL,
     `recipient` VARCHAR(191) NOT NULL,
@@ -55,11 +56,16 @@ CREATE TABLE `Email` (
     `scheduledAt` DATETIME(3) NULL,
     `sentAt` DATETIME(3) NULL,
     `error` TEXT NULL,
+    `trackingToken` VARCHAR(191) NOT NULL,
+    `openCount` INTEGER NOT NULL DEFAULT 0,
+    `firstOpenedAt` DATETIME(3) NULL,
+    `lastOpenedAt` DATETIME(3) NULL,
     `campaignId` VARCHAR(191) NULL,
     `senderId` VARCHAR(191) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
+    UNIQUE INDEX `Email_trackingToken_key`(`trackingToken`),
     INDEX `Email_campaignId_idx`(`campaignId`),
     INDEX `Email_senderId_idx`(`senderId`),
     INDEX `Email_status_idx`(`status`),
@@ -67,13 +73,22 @@ CREATE TABLE `Email` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- AddForeignKey
-ALTER TABLE `Sender` ADD CONSTRAINT `Sender_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE `Sender`
+ADD CONSTRAINT `Sender_userId_fkey`
+FOREIGN KEY (`userId`) REFERENCES `User`(`id`)
+ON DELETE CASCADE ON UPDATE CASCADE;
 
--- AddForeignKey
-ALTER TABLE `Campaign` ADD CONSTRAINT `Campaign_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE `Campaign`
+ADD CONSTRAINT `Campaign_userId_fkey`
+FOREIGN KEY (`userId`) REFERENCES `User`(`id`)
+ON DELETE CASCADE ON UPDATE CASCADE;
 
--- AddForeignKey
-ALTER TABLE `Email` ADD CONSTRAINT `Email_campaignId_fkey` FOREIGN KEY (`campaignId`) REFERENCES `Campaign`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `Email`
+ADD CONSTRAINT `Email_campaignId_fkey`
+FOREIGN KEY (`campaignId`) REFERENCES `Campaign`(`id`)
+ON DELETE SET NULL ON UPDATE CASCADE;
 
--- AddForeignKey
-ALTER TABLE `Email` ADD CONSTRAINT `Email_senderId_fkey` FOREIGN KEY (`senderId`) REFERENCES `Sender`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `Email`
+ADD CONSTRAINT `Email_senderId_fkey`
+FOREIGN KEY (`senderId`) REFERENCES `Sender`(`id`)
+ON DELETE SET NULL ON UPDATE CASCADE;
