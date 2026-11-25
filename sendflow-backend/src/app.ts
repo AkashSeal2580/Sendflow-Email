@@ -17,11 +17,22 @@ import {
 
 const app = express();
 
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://sendflow-email.vercel.app",
+];
+
 app.use(helmet());
 
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
   })
 );
@@ -54,8 +65,6 @@ app.use("/api/auth", authRoutes);
 app.use("/api/senders", senderRoutes);
 app.use("/api/campaigns", campaignRoutes);
 app.use("/api/uploads", uploadRoutes);
-
-// Email sending routes
 app.use("/api/emails", emailRoutes);
 
 export default app;
