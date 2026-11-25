@@ -16,7 +16,7 @@ function getEncryptionKey(): Buffer {
   const secret = process.env.SMTP_ENCRYPTION_KEY;
 
   if (!secret) {
-    throw new Error("SMTP_ENCRYPTION_KEY is missing in .env");
+    throw new Error("SMTP_ENCRYPTION_KEY is missing in environment variables");
   }
 
   const key = Buffer.from(secret, "hex");
@@ -67,7 +67,6 @@ export function decryptPassword(encryptedPassword: string): string {
   }
 
   const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
-
   decipher.setAuthTag(authTag);
 
   const decrypted = Buffer.concat([
@@ -84,42 +83,69 @@ export async function createSender(
 ) {
   const { name, email, host, port, username, password } = input;
 
-  if (!name?.trim() || !email?.trim() || !host?.trim() ||
-      !username?.trim() || !password || !port) {
+  if (
+    !name?.trim() ||
+    !email?.trim() ||
+    !host?.trim() ||
+    !username?.trim() ||
+    !password ||
+    !port
+  ) {
     throw new Error("All sender fields are required");
   }
 
+  const smtpPort = Number(port);
+
   if (
-    !Number.isInteger(Number(port)) ||
-    Number(port) < 1 ||
-    Number(port) > 65535
+    !Number.isInteger(smtpPort) ||
+    smtpPort < 1 ||
+    smtpPort > 65535
   ) {
     throw new Error("Invalid SMTP port");
   }
 
+  // Gmail SMTP configuration
   const transporter = nodemailer.createTransport({
     host: host.trim(),
-    port: Number(port),
-    secure: Number(port) === 465,
+    port: smtpPort,
+    secure: smtpPort === 465,
+    requireTLS: smtpPort === 587,
     auth: {
       user: username.trim(),
-      pass: password,
+      pass: password.replace(/\s/g, ""),
     },
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 15000,
+    connectionTimeout: 20000,
+    greetingTimeout: 20000,
+    socketTimeout: 30000,
+    tls: {
+      minVersion: "TLSv1.2",
+    },
   });
 
-  await transporter.verify();
+  try {
+    await transporter.verify();
+  } catch (error: any) {
+    console.error("SMTP CONNECTION ERROR:", {
+      code: error.code,
+      command: error.command,
+      message: error.message,
+    });
 
-  const encryptedPassword = encryptPassword(password);
+    throw new Error(
+      `SMTP connection failed: ${error.code || "UNKNOWN"} - ${error.message}`
+    );
+  } finally {
+    transporter.close();
+  }
+
+  const encryptedPassword = encryptPassword(password.replace(/\s/g, ""));
 
   return prisma.sender.create({
     data: {
       name: name.trim(),
       email: email.trim().toLowerCase(),
       host: host.trim(),
-      port: Number(port),
+      port: smtpPort,
       username: username.trim(),
       password: encryptedPassword,
       status: "Connected",
