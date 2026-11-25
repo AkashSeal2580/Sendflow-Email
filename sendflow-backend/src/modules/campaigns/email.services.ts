@@ -8,6 +8,10 @@ export async function sendCampaignEmails(
   campaignId: string,
   senderId: string
 ) {
+  // =====================================
+  // FIND CAMPAIGN
+  // =====================================
+
   const campaign = await prisma.campaign.findFirst({
     where: {
       id: campaignId,
@@ -18,6 +22,10 @@ export async function sendCampaignEmails(
   if (!campaign) {
     throw new Error("Campaign not found");
   }
+
+  // =====================================
+  // FIND CONNECTED SENDER
+  // =====================================
 
   const sender = await prisma.sender.findFirst({
     where: {
@@ -30,6 +38,10 @@ export async function sendCampaignEmails(
   if (!sender) {
     throw new Error("Connected sender not found");
   }
+
+  // =====================================
+  // FIND RECIPIENTS
+  // =====================================
 
   const recipients = await prisma.email.findMany({
     where: {
@@ -46,26 +58,81 @@ export async function sendCampaignEmails(
     throw new Error("No draft recipients available");
   }
 
-  const backendUrl = process.env.BACKEND_URL?.replace(/\/$/, "");
+  // =====================================
+  // BACKEND URL
+  // =====================================
+
+  const backendUrl = process.env.BACKEND_URL?.replace(/\/+$/, "");
 
   if (!backendUrl) {
     throw new Error("BACKEND_URL is not configured");
+  }
+
+  // =====================================
+  // SMTP CONFIGURATION
+  // =====================================
+
+  const password = decryptPassword(sender.password);
+
+  const isGmail = sender.host.toLowerCase() === "smtp.gmail.com";
+
+  if (isGmail && sender.port !== 587 && sender.port !== 465) {
+    throw new Error("Gmail SMTP requires port 587 or 465.");
+  }
+
+  if (isGmail && sender.username.toLowerCase() !== sender.email.toLowerCase()) {
+    throw new Error("Gmail SMTP username must match the sender email address.");
   }
 
   const transporter = nodemailer.createTransport({
     host: sender.host,
     port: sender.port,
     secure: sender.port === 465,
+
+    ...(sender.port === 587
+      ? { requireTLS: true }
+      : {}),
+
     auth: {
       user: sender.username,
-      pass: decryptPassword(sender.password),
+      pass: password,
     },
+
+    connectionTimeout: 30000,
+    greetingTimeout: 30000,
+    socketTimeout: 60000,
+
+    tls: {
+      minVersion: "TLSv1.2",
+    },
+
+    logger: false,
+    debug: false,
   });
 
   let sent = 0;
   let failed = 0;
 
   try {
+    // =====================================
+    // VERIFY SMTP CONNECTION
+    // =====================================
+
+    try {
+      await transporter.verify();
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Unknown SMTP connection error";
+
+      throw new Error(`SMTP connection failed: ${message}`);
+    }
+
+    // =====================================
+    // SEND CAMPAIGN EMAILS
+    // =====================================
+
     for (const recipient of recipients) {
       try {
         const trackingUrl =
@@ -103,7 +170,9 @@ export async function sendCampaignEmails(
         });
 
         await prisma.email.update({
-          where: { id: recipient.id },
+          where: {
+            id: recipient.id,
+          },
           data: {
             status: "Sent",
             sentAt: new Date(),
@@ -114,19 +183,28 @@ export async function sendCampaignEmails(
 
         sent++;
       } catch (error) {
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : "Email sending failed";
+
         await prisma.email.update({
-          where: { id: recipient.id },
+          where: {
+            id: recipient.id,
+          },
           data: {
             status: "Failed",
             senderId: sender.id,
-            error:
-              error instanceof Error
-                ? error.message
-                : "Email sending failed",
+            error: errorMessage,
           },
         });
 
         failed++;
+
+        console.error(
+          `Email failed for ${recipient.recipient}:`,
+          errorMessage
+        );
       }
     }
   } finally {
