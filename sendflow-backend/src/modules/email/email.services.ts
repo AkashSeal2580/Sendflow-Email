@@ -194,3 +194,92 @@ export async function sendScheduledCampaignEmails(
     "Scheduled"
   );
 }
+
+// Send a single email without creating a campaign
+export async function sendSingleEmail(
+  userId: string,
+  senderId: string,
+  recipient: string,
+  subject: string,
+  content: string
+) {
+  const sender = await prisma.sender.findFirst({
+    where: {
+      id: senderId,
+      userId,
+      status: "Connected",
+    },
+  });
+
+  if (!sender) {
+    throw new Error("Connected sender not found");
+  }
+
+  const now = new Date();
+  const startOfDay = new Date(now);
+  startOfDay.setHours(0, 0, 0, 0);
+
+  const sentToday = await prisma.email.count({
+    where: {
+      senderId: sender.id,
+      status: "Sent",
+      sentAt: { gte: startOfDay },
+    },
+  });
+
+  if (sentToday >= sender.dailyLimit) {
+    throw new Error("Daily sending limit reached");
+  }
+
+  const email = await prisma.email.create({
+    data: {
+      recipient,
+      subject,
+      status: "Sending",
+      senderId: sender.id,
+    },
+  });
+
+  const transporter = nodemailer.createTransport({
+    host: sender.host,
+    port: sender.port,
+    secure: sender.port === 465,
+    auth: {
+      user: sender.username,
+      pass: decryptPassword(sender.password),
+    },
+  });
+
+  try {
+    await transporter.sendMail({
+      from: `"${sender.name}" <${sender.email}>`,
+      to: recipient,
+      subject,
+      text: content,
+    });
+
+    return await prisma.email.update({
+      where: { id: email.id },
+      data: {
+        status: "Sent",
+        sentAt: new Date(),
+        error: null,
+      },
+    });
+  } catch (error) {
+    await prisma.email.update({
+      where: { id: email.id },
+      data: {
+        status: "Failed",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Email sending failed",
+      },
+    });
+
+    throw error;
+  } finally {
+    transporter.close();
+  }
+}

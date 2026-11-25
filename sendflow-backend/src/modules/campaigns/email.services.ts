@@ -46,6 +46,12 @@ export async function sendCampaignEmails(
     throw new Error("No draft recipients available");
   }
 
+  const backendUrl = process.env.BACKEND_URL?.replace(/\/$/, "");
+
+  if (!backendUrl) {
+    throw new Error("BACKEND_URL is not configured");
+  }
+
   const transporter = nodemailer.createTransport({
     host: sender.host,
     port: sender.port,
@@ -59,41 +65,73 @@ export async function sendCampaignEmails(
   let sent = 0;
   let failed = 0;
 
-  for (const recipient of recipients) {
-    try {
-      await transporter.sendMail({
-        from: `"${sender.name}" <${sender.email}>`,
-        to: recipient.recipient,
-        subject: campaign.subject,
-        text: campaign.content,
-      });
+  try {
+    for (const recipient of recipients) {
+      try {
+        const trackingUrl =
+          `${backendUrl}/api/tracking/open/` +
+          encodeURIComponent(recipient.trackingToken);
 
-      await prisma.email.update({
-        where: { id: recipient.id },
-        data: {
-          status: "Sent",
-          sentAt: new Date(),
-          senderId: sender.id,
-          error: null,
-        },
-      });
+        // Escape campaign content before inserting into HTML
+        const safeContent = campaign.content
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
 
-      sent++;
-    } catch (error) {
-      await prisma.email.update({
-        where: { id: recipient.id },
-        data: {
-          status: "Failed",
-          senderId: sender.id,
-          error: error instanceof Error ? error.message : "Email sending failed",
-        },
-      });
+        const htmlContent = `
+          <div style="white-space: pre-wrap;">
+            ${safeContent}
+          </div>
 
-      failed++;
+          <img
+            src="${trackingUrl}"
+            width="1"
+            height="1"
+            alt=""
+            style="width:1px;height:1px;border:0;"
+          />
+        `;
+
+        await transporter.sendMail({
+          from: `"${sender.name}" <${sender.email}>`,
+          to: recipient.recipient,
+          subject: campaign.subject,
+          text: campaign.content,
+          html: htmlContent,
+        });
+
+        await prisma.email.update({
+          where: { id: recipient.id },
+          data: {
+            status: "Sent",
+            sentAt: new Date(),
+            senderId: sender.id,
+            error: null,
+          },
+        });
+
+        sent++;
+      } catch (error) {
+        await prisma.email.update({
+          where: { id: recipient.id },
+          data: {
+            status: "Failed",
+            senderId: sender.id,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Email sending failed",
+          },
+        });
+
+        failed++;
+      }
     }
+  } finally {
+    transporter.close();
   }
-
-  await transporter.close();
 
   return {
     total: recipients.length,

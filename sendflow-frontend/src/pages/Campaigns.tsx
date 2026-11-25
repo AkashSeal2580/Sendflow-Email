@@ -1,19 +1,31 @@
 
 import { useEffect, useState } from "react";
 import {
-  RefreshCw,
-  Pencil,
-  Trash2,
+  Search,
   CalendarClock,
-  X,
   Loader2,
+  RefreshCw,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Eye,
+  X,
   Mail,
-  Plus,
+  User,
 } from "lucide-react";
-import { Link } from "react-router-dom";
 
-const API =
-  import.meta.env.VITE_API_BASE_URL || "https://sendflow-email.onrender.com/api";
+// =====================================
+// API CONFIGURATION
+// =====================================
+
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
+
+const API_URL = `${API_BASE.replace(/\/+$/, "").replace(/(?:\/api)+$/i, "")}/api`;
+
+// =====================================
+// INTERFACES
+// =====================================
 
 interface Campaign {
   id: string;
@@ -22,491 +34,706 @@ interface Campaign {
   content: string;
   status: string;
   scheduledAt: string | null;
-  senderId: string | null;
   createdAt: string;
 }
 
-interface Sender {
+interface EmailRecord {
   id: string;
-  name: string;
-  email: string;
+  recipient: string;
+  subject: string;
   status: string;
+  sentAt: string | null;
+  error: string | null;
+  createdAt: string;
+
+  campaign: {
+    id: string;
+    name: string;
+  } | null;
+
+  sender: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
 }
 
-export default function Campaigns() {
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [senders, setSenders] = useState<Sender[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [editing, setEditing] = useState<Campaign | null>(null);
-  const [scheduling, setScheduling] = useState<Campaign | null>(null);
-  const [scheduledAt, setScheduledAt] = useState("");
-  const [senderId, setSenderId] = useState("");
+interface ApiResponse<T> {
+  success: boolean;
+  message?: string;
+  data: T;
+}
 
+// =====================================
+// COMMON API HELPERS
+// =====================================
+
+function getAuthToken(): string {
   const token = localStorage.getItem("sendflow_token");
 
-  async function loadCampaigns() {
+  if (!token) {
+    throw new Error("Please login again.");
+  }
+
+  return token;
+}
+
+async function apiRequest<T>(
+  endpoint: string
+): Promise<ApiResponse<T>> {
+  const token = getAuthToken();
+
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+    },
+  });
+
+  const contentType = response.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/json")) {
+    throw new Error(
+      `Invalid server response (${response.status}). Please check the API route.`
+    );
+  }
+
+  const result = await response.json();
+
+  if (!response.ok || !result.success) {
+    throw new Error(
+      result.message || `Request failed with status ${response.status}`
+    );
+  }
+
+  return result as ApiResponse<T>;
+}
+
+// =====================================
+// SCHEDULED EMAILS
+// =====================================
+
+export function ScheduledEmails() {
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  async function fetchCampaigns() {
     try {
       setLoading(true);
       setError("");
 
-      const response = await fetch(`${API}/campaigns`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const result = await apiRequest<Campaign[]>("/campaigns");
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || "Failed to fetch campaigns");
-      }
-
-      setCampaigns(result.data || []);
+      setCampaigns(
+        Array.isArray(result.data) ? result.data : []
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong"
+      );
     } finally {
       setLoading(false);
     }
   }
 
-  async function loadSenders() {
+  useEffect(() => {
+    fetchCampaigns();
+  }, []);
+
+  const scheduledCampaigns = campaigns.filter(
+    (campaign) =>
+      campaign.status?.toLowerCase() === "scheduled"
+  );
+
+  const filtered = scheduledCampaigns.filter((campaign) =>
+    `${campaign.name} ${campaign.subject} ${campaign.status}`
+      .toLowerCase()
+      .includes(query.toLowerCase())
+  );
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold">
+          Scheduled campaigns
+        </h1>
+
+        <p className="muted text-sm mt-2">
+          Review campaigns marked for future delivery.
+        </p>
+      </div>
+
+      <section className="panel">
+        <div className="p-4">
+          <div className="relative max-w-md">
+            <Search
+              size={16}
+              className="absolute left-3 top-3 muted"
+            />
+
+            <input
+              className="field pl-9"
+              placeholder="Search by campaign name or subject..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {loading && (
+          <div className="p-10 text-center muted">
+            <Loader2 className="animate-spin mx-auto mb-2" />
+            Loading campaigns...
+          </div>
+        )}
+
+        {error && (
+          <div className="p-8 text-center text-red-400">
+            {error}
+
+            <button
+              onClick={fetchCampaigns}
+              className="underline ml-2"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {!loading && !error && filtered.length > 0 && (
+          <div className="divide-y divide-white/10">
+            {filtered.map((campaign) => (
+              <div key={campaign.id} className="p-5">
+                <div className="flex justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold">
+                      {campaign.name}
+                    </h3>
+
+                    <p className="muted text-sm mt-1">
+                      {campaign.subject}
+                    </p>
+                  </div>
+
+                  <span className="text-xs text-violet-300">
+                    {campaign.status}
+                  </span>
+                </div>
+
+                <p className="muted text-xs mt-3">
+                  <CalendarClock
+                    size={13}
+                    className="inline mr-1"
+                  />
+
+                  {campaign.scheduledAt
+                    ? new Date(
+                        campaign.scheduledAt
+                      ).toLocaleString()
+                    : "No delivery date"}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!loading && !error && filtered.length === 0 && (
+          <div className="p-12 text-center muted text-sm">
+            No scheduled campaigns found.
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+// =====================================
+// SENT EMAILS & EMAIL TRACKING
+// =====================================
+
+export function SentEmails() {
+  const [emails, setEmails] = useState<EmailRecord[]>([]);
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [filter, setFilter] = useState("All");
+
+  const [selectedEmail, setSelectedEmail] =
+    useState<EmailRecord | null>(null);
+
+  // =====================================
+  // FETCH EMAIL HISTORY
+  // =====================================
+
+  async function fetchEmails() {
     try {
-      const response = await fetch(`${API}/senders`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      setLoading(true);
+      setError("");
 
-      const result = await response.json();
+      const result = await apiRequest<EmailRecord[]>(
+        "/emails/history"
+      );
 
-      if (response.ok) {
-        setSenders(
-          (result.data || []).filter(
-            (sender: Sender) => sender.status === "Connected"
-          )
-        );
-      }
+      const records = Array.isArray(result.data)
+        ? result.data
+        : [];
+
+      setEmails(records);
     } catch (err) {
-      console.error("Sender loading failed:", err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong"
+      );
+    } finally {
+      setLoading(false);
     }
   }
 
   useEffect(() => {
-    void loadCampaigns();
-    void loadSenders();
+    fetchEmails();
   }, []);
 
-  async function handleEdit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!editing) return;
+  // =====================================
+  // EMAIL STATISTICS
+  // =====================================
 
-    try {
-      setSaving(true);
+  const sentCount = emails.filter(
+    (email) => email.status?.toLowerCase() === "sent"
+  ).length;
 
-      const response = await fetch(`${API}/campaigns/${editing.id}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name: editing.name,
-          subject: editing.subject,
-          content: editing.content,
-        }),
-      });
+  const failedCount = emails.filter(
+    (email) => email.status?.toLowerCase() === "failed"
+  ).length;
 
-      const result = await response.json();
+  const pendingCount = emails.filter(
+    (email) =>
+      !["sent", "failed"].includes(
+        email.status?.toLowerCase()
+      )
+  ).length;
 
-      if (!response.ok) {
-        throw new Error(result.message || "Campaign update failed");
-      }
+  // =====================================
+  // EMAIL TYPE
+  // =====================================
 
-      setEditing(null);
-      await loadCampaigns();
-      alert("Campaign updated successfully!");
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Update failed");
-    } finally {
-      setSaving(false);
-    }
+  function getEmailType(email: EmailRecord) {
+    return email.campaign
+      ? "Campaign Email"
+      : "Single Email";
   }
 
-  async function handleDelete(id: string) {
-    if (!window.confirm("Are you sure you want to delete this draft campaign?")) {
-      return;
-    }
+  // =====================================
+  // SEARCH AND FILTER
+  // =====================================
 
-    try {
-      const response = await fetch(`${API}/campaigns/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+  const filteredEmails = emails.filter((email) => {
+    const searchText = [
+      email.recipient,
+      email.subject,
+      email.status,
+      email.campaign?.name || "",
+      email.sender?.name || "",
+      email.sender?.email || "",
+    ]
+      .join(" ")
+      .toLowerCase();
 
-      const result = await response.json();
+    const matchesSearch = searchText.includes(
+      query.toLowerCase()
+    );
 
-      if (!response.ok) {
-        throw new Error(result.message || "Delete failed");
-      }
+    const status = email.status?.toLowerCase() || "";
 
-      await loadCampaigns();
-      alert("Campaign deleted successfully!");
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Delete failed");
-    }
-  }
+    const matchesFilter =
+      filter === "All" ||
+      (filter === "Pending"
+        ? !["sent", "failed"].includes(status)
+        : status === filter.toLowerCase());
 
-  async function handleSchedule(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!scheduling) return;
+    return matchesSearch && matchesFilter;
+  });
 
-    try {
-      setSaving(true);
+  // =====================================
+  // STATUS ICON
+  // =====================================
 
-      const response = await fetch(
-        `${API}/campaigns/${scheduling.id}/schedule`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            scheduledAt: new Date(scheduledAt).toISOString(),
-            senderId,
-          }),
-        }
+  function statusIcon(status: string) {
+    const normalizedStatus = status?.toLowerCase();
+
+    if (normalizedStatus === "sent") {
+      return (
+        <CheckCircle2
+          size={15}
+          className="text-green-400"
+        />
       );
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || "Scheduling failed");
-      }
-
-      setScheduling(null);
-      setScheduledAt("");
-      setSenderId("");
-      await loadCampaigns();
-      alert("Campaign scheduled successfully!");
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Scheduling failed");
-    } finally {
-      setSaving(false);
     }
+
+    if (normalizedStatus === "failed") {
+      return (
+        <XCircle
+          size={15}
+          className="text-red-400"
+        />
+      );
+    }
+
+    return (
+      <Clock
+        size={15}
+        className="text-yellow-400"
+      />
+    );
   }
 
-  function statusStyle(status: string) {
-    switch (status) {
-      case "Draft":
-        return "bg-gray-700/60 text-gray-200";
-      case "Scheduled":
-        return "bg-blue-500/20 text-blue-400";
-      case "Completed":
-        return "bg-green-500/20 text-green-400";
-      case "Sending":
-        return "bg-amber-500/20 text-amber-400";
-      default:
-        return "bg-gray-700/60 text-gray-200";
-    }
-  }
-
-  const inputStyle =
-    "w-full rounded-lg border border-gray-700 bg-[#111827] p-3 text-gray-100 placeholder-gray-500 outline-none focus:border-blue-500";
+  // =====================================
+  // EMAIL HISTORY UI
+  // =====================================
 
   return (
-    <div className="space-y-6 text-gray-100">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+    <div className="space-y-6">
+      {/* HEADER */}
+
+      <div className="flex flex-wrap justify-between items-center gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-white">Campaigns</h1>
-          <p className="mt-1 text-sm text-gray-400">
-            Manage, edit and schedule your email campaigns.
+          <h1 className="text-2xl font-semibold">
+            Email History
+          </h1>
+
+          <p className="muted text-sm mt-2">
+            Track your single emails, campaigns, failed and pending emails.
           </p>
         </div>
 
-        <div className="flex gap-2">
-          <button
-            onClick={() => void loadCampaigns()}
-            className="flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-900 px-4 py-2 text-sm font-medium text-gray-300 transition hover:bg-gray-800"
-          >
-            <RefreshCw size={16} />
-            Refresh
-          </button>
+        <button
+          onClick={fetchEmails}
+          disabled={loading}
+          className="btn-secondary flex items-center gap-2 px-4 py-2"
+        >
+          <RefreshCw
+            size={15}
+            className={loading ? "animate-spin" : ""}
+          />
 
-          <Link
-            to="/compose"
-            className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700"
-          >
-            <Plus size={16} />
-            New Campaign
-          </Link>
+          Refresh
+        </button>
+      </div>
+
+      {/* STATISTICS */}
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="panel p-5">
+          <p className="muted text-sm">
+            Total emails
+          </p>
+
+          <h2 className="text-2xl font-semibold mt-2">
+            {emails.length}
+          </h2>
+        </div>
+
+        <div className="panel p-5">
+          <p className="muted text-sm">
+            Successfully sent
+          </p>
+
+          <h2 className="text-2xl font-semibold text-green-400 mt-2">
+            {sentCount}
+          </h2>
+        </div>
+
+        <div className="panel p-5">
+          <p className="muted text-sm">
+            Failed emails
+          </p>
+
+          <h2 className="text-2xl font-semibold text-red-400 mt-2">
+            {failedCount}
+          </h2>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {["Draft", "Scheduled", "Completed"].map((status) => (
-          <div
-            key={status}
-            className="rounded-xl border border-gray-800 bg-gray-900 p-5"
-          >
-            <p className="text-sm text-gray-400">{status}</p>
-            <p className="mt-2 text-2xl font-bold text-white">
-              {campaigns.filter((item) => item.status === status).length}
-            </p>
-          </div>
-        ))}
+      {/* FILTERS */}
+
+      <div className="panel p-4 space-y-4">
+        <div className="flex flex-wrap gap-2">
+          {["All", "Sent", "Failed", "Pending"].map((item) => (
+            <button
+              key={item}
+              onClick={() => setFilter(item)}
+              className={`px-4 py-2 rounded-lg text-sm transition ${
+                filter === item
+                  ? "bg-blue-600 text-white"
+                  : "bg-white/5 text-slate-400 hover:bg-white/10"
+              }`}
+            >
+              {item}
+
+              {item === "Pending" && ` (${pendingCount})`}
+              {item === "Sent" && ` (${sentCount})`}
+              {item === "Failed" && ` (${failedCount})`}
+            </button>
+          ))}
+        </div>
+
+        <div className="relative max-w-md">
+          <Search
+            size={16}
+            className="absolute left-3 top-3 muted"
+          />
+
+          <input
+            className="field pl-9"
+            placeholder="Search recipient, subject, sender or campaign..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
       </div>
 
-      {error && (
-        <div className="rounded-lg border border-red-900 bg-red-950/50 p-4 text-sm text-red-300">
-          {error}
-        </div>
-      )}
+      {/* EMAIL LIST */}
 
-      <div className="overflow-hidden rounded-xl border border-gray-800 bg-gray-900">
-        <div className="border-b border-gray-800 px-5 py-4">
-          <h2 className="font-semibold text-white">All Campaigns</h2>
-        </div>
-
-        {loading ? (
-          <div className="flex items-center justify-center gap-2 p-12 text-gray-400">
-            <Loader2 className="animate-spin" size={20} />
-            Loading campaigns...
-          </div>
-        ) : campaigns.length === 0 ? (
-          <div className="p-12 text-center">
-            <Mail className="mx-auto mb-3 text-gray-500" size={32} />
-            <p className="font-medium text-gray-200">No campaigns found</p>
-            <p className="mt-1 text-sm text-gray-400">
-              Create your first email campaign.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-[#111827] text-gray-400">
-                <tr>
-                  <th className="px-5 py-3 font-medium">Campaign</th>
-                  <th className="px-5 py-3 font-medium">Subject</th>
-                  <th className="px-5 py-3 font-medium">Status</th>
-                  <th className="px-5 py-3 font-medium">Scheduled</th>
-                  <th className="px-5 py-3 font-medium">Actions</th>
-                </tr>
-              </thead>
-
-              <tbody className="divide-y divide-gray-800">
-                {campaigns.map((campaign) => (
-                  <tr
-                    key={campaign.id}
-                    className="transition hover:bg-gray-800/50"
-                  >
-                    <td className="px-5 py-4 font-medium text-gray-100">
-                      {campaign.name}
-                    </td>
-
-                    <td className="max-w-xs truncate px-5 py-4 text-gray-400">
-                      {campaign.subject}
-                    </td>
-
-                    <td className="px-5 py-4">
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusStyle(
-                          campaign.status
-                        )}`}
-                      >
-                        {campaign.status}
-                      </span>
-                    </td>
-
-                    <td className="px-5 py-4 text-gray-400">
-                      {campaign.scheduledAt
-                        ? new Date(campaign.scheduledAt).toLocaleString()
-                        : "—"}
-                    </td>
-
-                    <td className="px-5 py-4">
-                      {campaign.status === "Draft" ? (
-                        <div className="flex items-center gap-2">
-                          <button
-                            title="Edit campaign"
-                            onClick={() => setEditing({ ...campaign })}
-                            className="rounded-lg p-2 text-blue-400 transition hover:bg-blue-500/10"
-                          >
-                            <Pencil size={16} />
-                          </button>
-
-                          <button
-                            title="Schedule campaign"
-                            onClick={() => setScheduling(campaign)}
-                            className="rounded-lg p-2 text-green-400 transition hover:bg-green-500/10"
-                          >
-                            <CalendarClock size={16} />
-                          </button>
-
-                          <button
-                            title="Delete campaign"
-                            onClick={() => void handleDelete(campaign.id)}
-                            className="rounded-lg p-2 text-red-400 transition hover:bg-red-500/10"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-gray-500">No actions</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <section className="panel">
+        {loading && (
+          <div className="p-10 text-center muted">
+            <Loader2 className="animate-spin mx-auto mb-2" />
+            Loading email history...
           </div>
         )}
-      </div>
 
-      {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <form
-            onSubmit={handleEdit}
-            className="w-full max-w-lg space-y-4 rounded-xl border border-gray-700 bg-gray-900 p-6 text-gray-100 shadow-xl"
+        {error && (
+          <div className="p-8 text-center text-red-400">
+            {error}
+
+            <button
+              onClick={fetchEmails}
+              className="underline ml-2"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {!loading && !error && filteredEmails.length > 0 && (
+          <div className="divide-y divide-white/10">
+            {filteredEmails.map((email) => (
+              <div key={email.id} className="p-5">
+                <div className="flex flex-wrap justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="font-semibold break-all">
+                      {email.recipient}
+                    </h3>
+
+                    <p className="muted text-sm mt-1">
+                      {email.subject}
+                    </p>
+
+                    <p className="muted text-xs mt-2">
+                      Type: {getEmailType(email)}
+                    </p>
+
+                    <p className="muted text-xs mt-1">
+                      Campaign:{" "}
+                      {email.campaign?.name ||
+                        "Not part of a campaign"}
+                    </p>
+
+                    <p className="muted text-xs mt-1">
+                      Sender:{" "}
+                      {email.sender?.name || "Unknown"}
+
+                      {email.sender?.email
+                        ? ` (${email.sender.email})`
+                        : ""}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 text-sm">
+                      {statusIcon(email.status)}
+                      <span>{email.status}</span>
+                    </div>
+
+                    <button
+                      onClick={() => setSelectedEmail(email)}
+                      className="btn-secondary flex items-center gap-2 px-3 py-2 text-sm"
+                    >
+                      <Eye size={15} />
+                      Details
+                    </button>
+                  </div>
+                </div>
+
+                <div className="muted text-xs mt-3">
+                  {email.sentAt
+                    ? `Sent: ${new Date(
+                        email.sentAt
+                      ).toLocaleString()}`
+                    : `Created: ${new Date(
+                        email.createdAt
+                      ).toLocaleString()}`}
+                </div>
+
+                {email.status?.toLowerCase() === "failed" && (
+                  <div className="mt-3 rounded-lg bg-red-500/10 border border-red-500/20 p-3">
+                    <p className="text-red-400 text-xs font-medium">
+                      Delivery failed
+                    </p>
+
+                    <p className="text-red-300 text-xs mt-1 break-words">
+                      {email.error ||
+                        "No error details available."}
+                    </p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!loading && !error && filteredEmails.length === 0 && (
+          <div className="p-12 text-center muted text-sm">
+            No email records found.
+          </div>
+        )}
+      </section>
+
+      {/* EMAIL DETAILS MODAL */}
+
+      {selectedEmail && (
+        <div
+          className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+          onClick={() => setSelectedEmail(null)}
+        >
+          <div
+            className="panel w-full max-w-xl p-6 space-y-5 max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-white">
-                Edit Draft Campaign
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-semibold">
+                Email Details
               </h2>
+
               <button
-                type="button"
-                onClick={() => setEditing(null)}
-                className="text-gray-400 hover:text-white"
+                onClick={() => setSelectedEmail(null)}
+                className="muted hover:text-white"
               >
                 <X size={20} />
               </button>
             </div>
 
-            <input
-              required
-              value={editing.name}
-              onChange={(e) =>
-                setEditing({ ...editing, name: e.target.value })
-              }
-              placeholder="Campaign name"
-              className={inputStyle}
-            />
+            <div className="space-y-4 text-sm">
+              <div>
+                <p className="muted text-xs">Recipient</p>
 
-            <input
-              required
-              value={editing.subject}
-              onChange={(e) =>
-                setEditing({ ...editing, subject: e.target.value })
-              }
-              placeholder="Email subject"
-              className={inputStyle}
-            />
+                <p className="mt-1 break-all">
+                  <Mail size={14} className="inline mr-2" />
+                  {selectedEmail.recipient}
+                </p>
+              </div>
 
-            <textarea
-              required
-              rows={6}
-              value={editing.content}
-              onChange={(e) =>
-                setEditing({ ...editing, content: e.target.value })
-              }
-              placeholder="Email content"
-              className={inputStyle}
-            />
+              <div>
+                <p className="muted text-xs">Subject</p>
+                <p className="mt-1">{selectedEmail.subject}</p>
+              </div>
 
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setEditing(null)}
-                className="rounded-lg border border-gray-700 px-4 py-2 text-gray-300 hover:bg-gray-800"
-              >
-                Cancel
-              </button>
+              <div>
+                <p className="muted text-xs">Email Type</p>
+                <p className="mt-1">
+                  {getEmailType(selectedEmail)}
+                </p>
+              </div>
 
-              <button
-                disabled={saving}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                {saving ? "Saving..." : "Save Changes"}
-              </button>
+              <div>
+                <p className="muted text-xs">Campaign</p>
+                <p className="mt-1">
+                  {selectedEmail.campaign?.name ||
+                    "Not part of a campaign"}
+                </p>
+              </div>
+
+              <div>
+                <p className="muted text-xs">Sender</p>
+
+                <p className="mt-1">
+                  <User size={14} className="inline mr-2" />
+                  {selectedEmail.sender?.name || "Unknown"}
+
+                  {selectedEmail.sender?.email
+                    ? ` (${selectedEmail.sender.email})`
+                    : ""}
+                </p>
+              </div>
+
+              <div>
+                <p className="muted text-xs">Email ID</p>
+                <p className="mt-1 break-all">
+                  {selectedEmail.id}
+                </p>
+              </div>
+
+              <div>
+                <p className="muted text-xs">Status</p>
+
+                <div className="flex items-center gap-2 mt-1">
+                  {statusIcon(selectedEmail.status)}
+                  <span>{selectedEmail.status}</span>
+                </div>
+              </div>
+
+              <div>
+                <p className="muted text-xs">Created At</p>
+
+                <p className="mt-1">
+                  {new Date(
+                    selectedEmail.createdAt
+                  ).toLocaleString()}
+                </p>
+              </div>
+
+              {selectedEmail.sentAt && (
+                <div>
+                  <p className="muted text-xs">Sent At</p>
+
+                  <p className="mt-1">
+                    {new Date(
+                      selectedEmail.sentAt
+                    ).toLocaleString()}
+                  </p>
+                </div>
+              )}
+
+              {selectedEmail.status?.toLowerCase() === "failed" && (
+                <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-4">
+                  <p className="text-red-400 font-medium">
+                    Failure Reason
+                  </p>
+
+                  <p className="text-red-300 mt-2 break-words">
+                    {selectedEmail.error ||
+                      "No error details available."}
+                  </p>
+                </div>
+              )}
             </div>
-          </form>
-        </div>
-      )}
 
-      {scheduling && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <form
-            onSubmit={handleSchedule}
-            className="w-full max-w-lg space-y-4 rounded-xl border border-gray-700 bg-gray-900 p-6 text-gray-100 shadow-xl"
-          >
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-white">
-                Schedule Campaign
-              </h2>
-              <button
-                type="button"
-                onClick={() => setScheduling(null)}
-                className="text-gray-400 hover:text-white"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <p className="text-sm text-gray-400">{scheduling.name}</p>
-
-            <label className="block space-y-2 text-sm font-medium text-gray-300">
-              Schedule date and time
-              <input
-                type="datetime-local"
-                required
-                min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
-                value={scheduledAt}
-                onChange={(e) => setScheduledAt(e.target.value)}
-                className={inputStyle}
-              />
-            </label>
-
-            <label className="block space-y-2 text-sm font-medium text-gray-300">
-              Select connected sender
-              <select
-                required
-                value={senderId}
-                onChange={(e) => setSenderId(e.target.value)}
-                className={inputStyle}
-              >
-                <option value="">Choose sender</option>
-                {senders.map((sender) => (
-                  <option key={sender.id} value={sender.id}>
-                    {sender.name} ({sender.email})
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            {senders.length === 0 && (
-              <p className="text-sm text-red-400">
-                No connected sender found. Connect a sender first.
-              </p>
-            )}
-
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setScheduling(null)}
-                className="rounded-lg border border-gray-700 px-4 py-2 text-gray-300 hover:bg-gray-800"
-              >
-                Cancel
-              </button>
-
-              <button
-                disabled={saving || senders.length === 0}
-                className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                <CalendarClock size={16} />
-                {saving ? "Scheduling..." : "Schedule Campaign"}
-              </button>
-            </div>
-          </form>
+            <button
+              onClick={() => setSelectedEmail(null)}
+              className="btn-primary w-full py-2"
+            >
+              Close Details
+            </button>
+          </div>
         </div>
       )}
     </div>
   );
 }
+
+export default ScheduledEmails;

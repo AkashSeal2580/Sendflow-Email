@@ -12,7 +12,18 @@ import {
   X,
 } from "lucide-react";
 
-const API_URL = import.meta.env.VITE_API_URL;
+// =====================================
+// API CONFIGURATION
+// =====================================
+
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+
+const API_URL = `${API_BASE.replace(/\/+$/, "").replace(/(?:\/api)+$/i, "")}/api`;
+
+// =====================================
+// INTERFACES
+// =====================================
 
 interface Campaign {
   id: string;
@@ -38,9 +49,59 @@ interface EmailRecord {
   } | null;
 }
 
-// ===============================
+interface ApiResponse<T> {
+  success: boolean;
+  message?: string;
+  data: T;
+}
+
+// =====================================
+// COMMON API HELPERS
+// =====================================
+
+function getAuthToken(): string {
+  const token = localStorage.getItem("sendflow_token");
+
+  if (!token) {
+    throw new Error("Please login again.");
+  }
+
+  return token;
+}
+
+async function apiRequest<T>(endpoint: string): Promise<ApiResponse<T>> {
+  const token = getAuthToken();
+
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+    },
+  });
+
+  const contentType = response.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/json")) {
+    throw new Error(
+      `Invalid server response (${response.status}). Please check the API route.`
+    );
+  }
+
+  const result = await response.json();
+
+  if (!response.ok || !result.success) {
+    throw new Error(
+      result.message || `Request failed with status ${response.status}`
+    );
+  }
+
+  return result as ApiResponse<T>;
+}
+
+// =====================================
 // SCHEDULED EMAILS
-// ===============================
+// =====================================
 
 export function ScheduledEmails() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -53,28 +114,16 @@ export function ScheduledEmails() {
       setLoading(true);
       setError("");
 
-      const token = localStorage.getItem("sendflow_token");
+      const result = await apiRequest<Campaign[]>("/campaigns");
 
-      if (!token) {
-        throw new Error("Please login again.");
-      }
-
-      const response = await fetch(`${API_URL}/api/campaigns`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Failed to fetch campaigns");
-      }
-
-      setCampaigns(result.data);
+      setCampaigns(
+        Array.isArray(result.data) ? result.data : []
+      );
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Something went wrong"
+        err instanceof Error
+          ? err.message
+          : "Something went wrong"
       );
     } finally {
       setLoading(false);
@@ -86,7 +135,8 @@ export function ScheduledEmails() {
   }, []);
 
   const scheduledCampaigns = campaigns.filter(
-    (campaign) => campaign.status === "Scheduled"
+    (campaign) =>
+      campaign.status?.toLowerCase() === "scheduled"
   );
 
   const filtered = scheduledCampaigns.filter((campaign) =>
@@ -101,6 +151,7 @@ export function ScheduledEmails() {
         <h1 className="text-2xl font-semibold">
           Scheduled campaigns
         </h1>
+
         <p className="muted text-sm mt-2">
           Review campaigns marked for future delivery.
         </p>
@@ -109,7 +160,11 @@ export function ScheduledEmails() {
       <section className="panel">
         <div className="p-4">
           <div className="relative max-w-md">
-            <Search size={16} className="absolute left-3 top-3 muted" />
+            <Search
+              size={16}
+              className="absolute left-3 top-3 muted"
+            />
+
             <input
               className="field pl-9"
               placeholder="Search by campaign name or subject..."
@@ -129,7 +184,11 @@ export function ScheduledEmails() {
         {error && (
           <div className="p-8 text-center text-red-400">
             {error}
-            <button onClick={fetchCampaigns} className="underline ml-2">
+
+            <button
+              onClick={fetchCampaigns}
+              className="underline ml-2"
+            >
               Retry
             </button>
           </div>
@@ -141,20 +200,30 @@ export function ScheduledEmails() {
               <div key={campaign.id} className="p-5">
                 <div className="flex justify-between gap-3">
                   <div>
-                    <h3 className="font-semibold">{campaign.name}</h3>
+                    <h3 className="font-semibold">
+                      {campaign.name}
+                    </h3>
+
                     <p className="muted text-sm mt-1">
                       {campaign.subject}
                     </p>
                   </div>
+
                   <span className="text-xs text-violet-300">
                     {campaign.status}
                   </span>
                 </div>
 
                 <p className="muted text-xs mt-3">
-                  <CalendarClock size={13} className="inline mr-1" />
+                  <CalendarClock
+                    size={13}
+                    className="inline mr-1"
+                  />
+
                   {campaign.scheduledAt
-                    ? new Date(campaign.scheduledAt).toLocaleString()
+                    ? new Date(
+                        campaign.scheduledAt
+                      ).toLocaleString()
                     : "No delivery date"}
                 </p>
               </div>
@@ -172,9 +241,9 @@ export function ScheduledEmails() {
   );
 }
 
-// ===============================
+// =====================================
 // SENT EMAILS & EMAIL TRACKING
-// ===============================
+// =====================================
 
 export function SentEmails() {
   const [emails, setEmails] = useState<EmailRecord[]>([]);
@@ -182,6 +251,7 @@ export function SentEmails() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("All");
+
   const [selectedEmail, setSelectedEmail] =
     useState<EmailRecord | null>(null);
 
@@ -190,30 +260,18 @@ export function SentEmails() {
       setLoading(true);
       setError("");
 
-      const token = localStorage.getItem("sendflow_token");
+      const result = await apiRequest<EmailRecord[]>(
+        "/emails/history"
+      );
 
-      if (!token) {
-        throw new Error("Please login again.");
-      }
-
-      const response = await fetch(`${API_URL}/api/emails/history`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(
-          result.message || "Failed to fetch email history"
-        );
-      }
-
-      setEmails(result.data);
+      setEmails(
+        Array.isArray(result.data) ? result.data : []
+      );
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Something went wrong"
+        err instanceof Error
+          ? err.message
+          : "Something went wrong"
       );
     } finally {
       setLoading(false);
@@ -225,15 +283,18 @@ export function SentEmails() {
   }, []);
 
   const sentCount = emails.filter(
-    (email) => email.status === "Sent"
+    (email) => email.status?.toLowerCase() === "sent"
   ).length;
 
   const failedCount = emails.filter(
-    (email) => email.status === "Failed"
+    (email) => email.status?.toLowerCase() === "failed"
   ).length;
 
   const pendingCount = emails.filter(
-    (email) => !["Sent", "Failed"].includes(email.status)
+    (email) =>
+      !["sent", "failed"].includes(
+        email.status?.toLowerCase()
+      )
   ).length;
 
   const filteredEmails = emails.filter((email) => {
@@ -244,32 +305,56 @@ export function SentEmails() {
         .toLowerCase()
         .includes(query.toLowerCase());
 
+    const status = email.status?.toLowerCase();
+
     const matchesFilter =
       filter === "All" ||
       (filter === "Pending"
-        ? !["Sent", "Failed"].includes(email.status)
-        : email.status === filter);
+        ? !["sent", "failed"].includes(status)
+        : status === filter.toLowerCase());
 
     return matchesSearch && matchesFilter;
   });
 
   function statusIcon(status: string) {
-    if (status === "Sent") {
-      return <CheckCircle2 size={15} className="text-green-400" />;
+    const normalizedStatus = status?.toLowerCase();
+
+    if (normalizedStatus === "sent") {
+      return (
+        <CheckCircle2
+          size={15}
+          className="text-green-400"
+        />
+      );
     }
 
-    if (status === "Failed") {
-      return <XCircle size={15} className="text-red-400" />;
+    if (normalizedStatus === "failed") {
+      return (
+        <XCircle
+          size={15}
+          className="text-red-400"
+        />
+      );
     }
 
-    return <Clock size={15} className="text-yellow-400" />;
+    return (
+      <Clock
+        size={15}
+        className="text-yellow-400"
+      />
+    );
   }
 
   return (
     <div className="space-y-6">
+      {/* HEADER */}
+
       <div className="flex flex-wrap justify-between items-center gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Email History</h1>
+          <h1 className="text-2xl font-semibold">
+            Email History
+          </h1>
+
           <p className="muted text-sm mt-2">
             Track your sent, failed and pending emails.
           </p>
@@ -284,32 +369,46 @@ export function SentEmails() {
             size={15}
             className={loading ? "animate-spin" : ""}
           />
+
           Refresh
         </button>
       </div>
 
+      {/* STATISTICS */}
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="panel p-5">
-          <p className="muted text-sm">Total emails</p>
+          <p className="muted text-sm">
+            Total emails
+          </p>
+
           <h2 className="text-2xl font-semibold mt-2">
             {emails.length}
           </h2>
         </div>
 
         <div className="panel p-5">
-          <p className="muted text-sm">Successfully sent</p>
+          <p className="muted text-sm">
+            Successfully sent
+          </p>
+
           <h2 className="text-2xl font-semibold text-green-400 mt-2">
             {sentCount}
           </h2>
         </div>
 
         <div className="panel p-5">
-          <p className="muted text-sm">Failed emails</p>
+          <p className="muted text-sm">
+            Failed emails
+          </p>
+
           <h2 className="text-2xl font-semibold text-red-400 mt-2">
             {failedCount}
           </h2>
         </div>
       </div>
+
+      {/* FILTERS AND SEARCH */}
 
       <div className="panel p-4 space-y-4">
         <div className="flex flex-wrap gap-2">
@@ -324,6 +423,7 @@ export function SentEmails() {
               }`}
             >
               {item}
+
               {item === "Pending" && ` (${pendingCount})`}
               {item === "Sent" && ` (${sentCount})`}
               {item === "Failed" && ` (${failedCount})`}
@@ -332,7 +432,11 @@ export function SentEmails() {
         </div>
 
         <div className="relative max-w-md">
-          <Search size={16} className="absolute left-3 top-3 muted" />
+          <Search
+            size={16}
+            className="absolute left-3 top-3 muted"
+          />
+
           <input
             className="field pl-9"
             placeholder="Search recipient, subject or campaign..."
@@ -341,6 +445,8 @@ export function SentEmails() {
           />
         </div>
       </div>
+
+      {/* EMAIL LIST */}
 
       <section className="panel">
         {loading && (
@@ -353,7 +459,11 @@ export function SentEmails() {
         {error && (
           <div className="p-8 text-center text-red-400">
             {error}
-            <button onClick={fetchEmails} className="underline ml-2">
+
+            <button
+              onClick={fetchEmails}
+              className="underline ml-2"
+            >
               Retry
             </button>
           </div>
@@ -368,9 +478,11 @@ export function SentEmails() {
                     <h3 className="font-semibold break-all">
                       {email.recipient}
                     </h3>
+
                     <p className="muted text-sm mt-1">
                       {email.subject}
                     </p>
+
                     <p className="muted text-xs mt-2">
                       Campaign: {email.campaign?.name || "Unknown"}
                     </p>
@@ -379,6 +491,7 @@ export function SentEmails() {
                   <div className="flex items-center gap-3">
                     <div className="flex items-center gap-2 text-sm">
                       {statusIcon(email.status)}
+
                       <span>{email.status}</span>
                     </div>
 
@@ -394,15 +507,20 @@ export function SentEmails() {
 
                 <div className="muted text-xs mt-3">
                   {email.sentAt
-                    ? `Sent: ${new Date(email.sentAt).toLocaleString()}`
-                    : `Created: ${new Date(email.createdAt).toLocaleString()}`}
+                    ? `Sent: ${new Date(
+                        email.sentAt
+                      ).toLocaleString()}`
+                    : `Created: ${new Date(
+                        email.createdAt
+                      ).toLocaleString()}`}
                 </div>
 
-                {email.status === "Failed" && (
+                {email.status?.toLowerCase() === "failed" && (
                   <div className="mt-3 rounded-lg bg-red-500/10 border border-red-500/20 p-3">
                     <p className="text-red-400 text-xs font-medium">
                       Delivery failed
                     </p>
+
                     <p className="text-red-300 text-xs mt-1 break-words">
                       {email.error || "No error details available."}
                     </p>
@@ -420,6 +538,8 @@ export function SentEmails() {
         )}
       </section>
 
+      {/* EMAIL DETAILS MODAL */}
+
       {selectedEmail && (
         <div
           className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
@@ -430,7 +550,10 @@ export function SentEmails() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-center">
-              <h2 className="text-xl font-semibold">Email Details</h2>
+              <h2 className="text-xl font-semibold">
+                Email Details
+              </h2>
+
               <button
                 onClick={() => setSelectedEmail(null)}
                 className="muted hover:text-white"
@@ -441,31 +564,50 @@ export function SentEmails() {
 
             <div className="space-y-4 text-sm">
               <div>
-                <p className="muted text-xs">Recipient</p>
+                <p className="muted text-xs">
+                  Recipient
+                </p>
+
                 <p className="mt-1 break-all">
                   {selectedEmail.recipient}
                 </p>
               </div>
 
               <div>
-                <p className="muted text-xs">Subject</p>
-                <p className="mt-1">{selectedEmail.subject}</p>
+                <p className="muted text-xs">
+                  Subject
+                </p>
+
+                <p className="mt-1">
+                  {selectedEmail.subject}
+                </p>
               </div>
 
               <div>
-                <p className="muted text-xs">Campaign</p>
+                <p className="muted text-xs">
+                  Campaign
+                </p>
+
                 <p className="mt-1">
                   {selectedEmail.campaign?.name || "Unknown"}
                 </p>
               </div>
 
               <div>
-                <p className="muted text-xs">Email ID</p>
-                <p className="mt-1 break-all">{selectedEmail.id}</p>
+                <p className="muted text-xs">
+                  Email ID
+                </p>
+
+                <p className="mt-1 break-all">
+                  {selectedEmail.id}
+                </p>
               </div>
 
               <div>
-                <p className="muted text-xs">Status</p>
+                <p className="muted text-xs">
+                  Status
+                </p>
+
                 <div className="flex items-center gap-2 mt-1">
                   {statusIcon(selectedEmail.status)}
                   <span>{selectedEmail.status}</span>
@@ -473,26 +615,37 @@ export function SentEmails() {
               </div>
 
               <div>
-                <p className="muted text-xs">Created At</p>
+                <p className="muted text-xs">
+                  Created At
+                </p>
+
                 <p className="mt-1">
-                  {new Date(selectedEmail.createdAt).toLocaleString()}
+                  {new Date(
+                    selectedEmail.createdAt
+                  ).toLocaleString()}
                 </p>
               </div>
 
               {selectedEmail.sentAt && (
                 <div>
-                  <p className="muted text-xs">Sent At</p>
+                  <p className="muted text-xs">
+                    Sent At
+                  </p>
+
                   <p className="mt-1">
-                    {new Date(selectedEmail.sentAt).toLocaleString()}
+                    {new Date(
+                      selectedEmail.sentAt
+                    ).toLocaleString()}
                   </p>
                 </div>
               )}
 
-              {selectedEmail.status === "Failed" && (
+              {selectedEmail.status?.toLowerCase() === "failed" && (
                 <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-4">
                   <p className="text-red-400 font-medium">
                     Failure Reason
                   </p>
+
                   <p className="text-red-300 mt-2 break-words">
                     {selectedEmail.error || "No error details available."}
                   </p>

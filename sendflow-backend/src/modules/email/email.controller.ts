@@ -2,7 +2,16 @@
 import { Response } from "express";
 import { AuthRequest } from "../../middleware/auth.middleware";
 import { prisma } from "../../config/database";
-import { sendCampaignEmails } from "./email.services";
+import { Prisma } from "@prisma/client";
+
+import {
+  sendCampaignEmails,
+  sendSingleEmail,
+} from "./email.services";
+
+// =====================================
+// SEND CAMPAIGN EMAILS
+// =====================================
 
 export async function sendCampaign(
   req: AuthRequest,
@@ -38,6 +47,8 @@ export async function sendCampaign(
       data: result,
     });
   } catch (error) {
+    console.error("Campaign sending error:", error);
+
     return res.status(400).json({
       success: false,
       message:
@@ -48,7 +59,82 @@ export async function sendCampaign(
   }
 }
 
-// Get email history
+// =====================================
+// SEND SINGLE EMAIL
+// =====================================
+
+export async function sendSingle(
+  req: AuthRequest,
+  res: Response
+) {
+  try {
+    const userId = req.userId;
+    const { senderId, recipient, subject, content } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
+    if (
+      !senderId ||
+      typeof recipient !== "string" ||
+      typeof subject !== "string" ||
+      typeof content !== "string" ||
+      !recipient.trim() ||
+      !subject.trim() ||
+      !content.trim()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Sender, recipient, subject and message are required",
+      });
+    }
+
+    const normalizedRecipient = recipient.trim();
+
+    // Validate email address
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailRegex.test(normalizedRecipient)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please enter a valid recipient email",
+      });
+    }
+
+    const result = await sendSingleEmail(
+      userId,
+      senderId,
+      normalizedRecipient,
+      subject.trim(),
+      content.trim()
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Email sent successfully",
+      data: result,
+    });
+  } catch (error) {
+    console.error("Single email sending error:", error);
+
+    return res.status(400).json({
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to send email",
+    });
+  }
+}
+
+// =====================================
+// GET EMAIL HISTORY
+// =====================================
+
 export async function getEmailHistory(
   req: AuthRequest,
   res: Response
@@ -65,9 +151,18 @@ export async function getEmailHistory(
 
     const emails = await prisma.email.findMany({
       where: {
-        campaign: {
-          userId,
-        },
+        OR: [
+          {
+            campaign: {
+              is: { userId },
+            },
+          },
+          {
+            sender: {
+              is: { userId },
+            },
+          },
+        ],
       },
       select: {
         id: true,
@@ -81,6 +176,13 @@ export async function getEmailHistory(
           select: {
             id: true,
             name: true,
+          },
+        },
+        sender: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
           },
         },
       },
@@ -103,7 +205,14 @@ export async function getEmailHistory(
   }
 }
 
-export async function getEmailStats(req: AuthRequest, res: Response) {
+// =====================================
+// GET EMAIL STATISTICS
+// =====================================
+
+export async function getEmailStats(
+  req: AuthRequest,
+  res: Response
+) {
   try {
     const userId = req.userId;
 
@@ -114,8 +223,19 @@ export async function getEmailStats(req: AuthRequest, res: Response) {
       });
     }
 
-    const campaignFilter = {
-      campaign: { userId },
+    const emailFilter: Prisma.EmailWhereInput = {
+      OR: [
+        {
+          campaign: {
+            is: { userId },
+          },
+        },
+        {
+          sender: {
+            is: { userId },
+          },
+        },
+      ],
     };
 
     const [
@@ -124,35 +244,72 @@ export async function getEmailStats(req: AuthRequest, res: Response) {
       scheduledEmails,
       failedEmails,
     ] = await Promise.all([
-      prisma.email.count({ where: campaignFilter }),
       prisma.email.count({
-        where: { ...campaignFilter, status: "Sent" },
+        where: emailFilter,
       }),
+
       prisma.email.count({
-        where: { ...campaignFilter, status: "Scheduled" },
+        where: {
+          AND: [
+            emailFilter,
+            { status: "Sent" },
+          ],
+        },
       }),
+
       prisma.email.count({
-        where: { ...campaignFilter, status: "Failed" },
+        where: {
+          AND: [
+            emailFilter,
+            { status: "Scheduled" },
+          ],
+        },
+      }),
+
+      prisma.email.count({
+        where: {
+          AND: [
+            emailFilter,
+            { status: "Failed" },
+          ],
+        },
       }),
     ]);
 
     const deliveryRate =
       sentEmails + failedEmails > 0
         ? Number(
-            ((sentEmails / (sentEmails + failedEmails)) * 100).toFixed(1)
+            (
+              (sentEmails / (sentEmails + failedEmails)) *
+              100
+            ).toFixed(1)
           )
         : 0;
 
     const startDate = new Date();
+
     startDate.setHours(0, 0, 0, 0);
     startDate.setDate(startDate.getDate() - 6);
 
+    // Keep ownership filter AND date filter together
     const recentEmails = await prisma.email.findMany({
       where: {
-        ...campaignFilter,
-        OR: [
-          { createdAt: { gte: startDate } },
-          { sentAt: { gte: startDate } },
+        AND: [
+          emailFilter,
+          {
+            OR: [
+              {
+                createdAt: {
+                  gte: startDate,
+                },
+              },
+              {
+                sentAt: {
+                  gte: startDate,
+                },
+              },
+            ],
+          },
         ],
       },
       select: {
@@ -162,30 +319,36 @@ export async function getEmailStats(req: AuthRequest, res: Response) {
       },
     });
 
-    const activity = Array.from({ length: 7 }, (_, index) => {
-      const date = new Date(startDate);
-      date.setDate(startDate.getDate() + index);
+    const activity = Array.from(
+      { length: 7 },
+      (_, index) => {
+        const date = new Date(startDate);
 
-      const dateKey = date.toDateString();
+        date.setDate(startDate.getDate() + index);
 
-      const sent = recentEmails.filter(
-        (email) =>
-          email.status === "Sent" &&
-          email.sentAt?.toDateString() === dateKey
-      ).length;
+        const dateKey = date.toDateString();
 
-      const scheduled = recentEmails.filter(
-        (email) =>
-          email.status === "Scheduled" &&
-          email.createdAt.toDateString() === dateKey
-      ).length;
+        const sent = recentEmails.filter(
+          (email) =>
+            email.status === "Sent" &&
+            email.sentAt?.toDateString() === dateKey
+        ).length;
 
-      return {
-        day: date.toLocaleDateString("en-US", { weekday: "short" }),
-        sent,
-        scheduled,
-      };
-    });
+        const scheduled = recentEmails.filter(
+          (email) =>
+            email.status === "Scheduled" &&
+            email.createdAt.toDateString() === dateKey
+        ).length;
+
+        return {
+          day: date.toLocaleDateString("en-US", {
+            weekday: "short",
+          }),
+          sent,
+          scheduled,
+        };
+      }
+    );
 
     return res.status(200).json({
       success: true,

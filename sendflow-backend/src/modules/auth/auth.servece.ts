@@ -21,18 +21,21 @@ function generateToken(userId: string): string {
     throw new Error("JWT_SECRET is missing in .env");
   }
 
-  return jwt.sign({ userId }, secret, { expiresIn: "7d" });
+  return jwt.sign({ userId }, secret, {
+    expiresIn: "7d",
+  });
 }
 
 export async function registerUser(input: RegisterInput) {
-  const name = input.name.trim();
-  const email = input.email.trim().toLowerCase();
+  const name = input.name?.trim();
+  const email = input.email?.trim().toLowerCase();
+  const password = input.password;
 
-  if (!name || !email || !input.password) {
+  if (!name || !email || !password) {
     throw new Error("All fields are required");
   }
 
-  if (input.password.length < 8) {
+  if (password.length < 8) {
     throw new Error("Password must be at least 8 characters");
   }
 
@@ -44,7 +47,7 @@ export async function registerUser(input: RegisterInput) {
     throw new Error("Email already registered");
   }
 
-  const hashedPassword = await bcrypt.hash(input.password, 12);
+  const hashedPassword = await bcrypt.hash(password, 12);
 
   const user = await prisma.user.create({
     data: {
@@ -67,9 +70,10 @@ export async function registerUser(input: RegisterInput) {
 }
 
 export async function loginUser(input: LoginInput) {
-  const email = input.email.trim().toLowerCase();
+  const email = input.email?.trim().toLowerCase();
+  const password = input.password;
 
-  if (!email || !input.password) {
+  if (!email || !password) {
     throw new Error("Email and password are required");
   }
 
@@ -82,7 +86,7 @@ export async function loginUser(input: LoginInput) {
   }
 
   const isPasswordValid = await bcrypt.compare(
-    input.password,
+    password,
     user.password
   );
 

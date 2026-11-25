@@ -9,11 +9,15 @@ import {
   Loader2,
   FolderOpen,
   Plus,
+  Mail,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
-const API =
-  import.meta.env.VITE_API_BASE_URL || "https://sendflow-email.onrender.com/api";
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ||
+  "http://localhost:5000/api";
+
+const API = `${API_BASE.replace(/\/+$/, "").replace(/(?:\/api)+$/i, "")}/api`;
 
 interface Sender {
   id: string;
@@ -31,10 +35,10 @@ interface Campaign {
   scheduledAt: string | null;
 }
 
-type Mode = "new" | "existing";
+type Mode = "single" | "new" | "existing";
 
 export default function ComposeCampaign() {
-  const [mode, setMode] = useState<Mode>("new");
+  const [mode, setMode] = useState<Mode>("single");
 
   const [file, setFile] = useState<File | null>(null);
   const [count, setCount] = useState(0);
@@ -44,6 +48,11 @@ export default function ComposeCampaign() {
   const [content, setContent] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
   const [senderId, setSenderId] = useState("");
+
+  const [recipient, setRecipient] = useState("");
+  const [singleSubject, setSingleSubject] = useState("");
+  const [singleContent, setSingleContent] = useState("");
+  const [singleSenderId, setSingleSenderId] = useState("");
 
   const [senders, setSenders] = useState<Sender[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -92,11 +101,16 @@ export default function ComposeCampaign() {
           throw new Error(campaignResult.message || "Failed to load campaigns");
         }
 
-        setSenders(
-          (senderResult.data || []).filter(
-            (sender: Sender) => sender.status === "Connected"
-          )
-        );
+        const connectedSenders: Sender[] = (
+          senderResult.data || []
+        ).filter((sender: Sender) => sender.status === "Connected");
+
+        setSenders(connectedSenders);
+
+        if (connectedSenders.length > 0) {
+          setSingleSenderId(connectedSenders[0].id);
+          setSenderId(connectedSenders[0].id);
+        }
 
         setCampaigns(
           (campaignResult.data || []).filter(
@@ -175,6 +189,75 @@ export default function ComposeCampaign() {
 
     if (input.current) {
       input.current.value = "";
+    }
+  }
+
+  async function handleSingleEmail() {
+    setError("");
+    setMessage("");
+
+    const normalizedRecipient = recipient.trim();
+
+    if (
+      !normalizedRecipient ||
+      !singleSubject.trim() ||
+      !singleContent.trim()
+    ) {
+      setError("Please fill in recipient, subject and email body.");
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailRegex.test(normalizedRecipient)) {
+      setError("Please enter a valid recipient email address.");
+      return;
+    }
+
+    if (!singleSenderId) {
+      setError("Please select a connected email sender.");
+      return;
+    }
+
+    if (!token) {
+      setError("Please login again.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const response = await fetch(`${API}/emails/send-single`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          senderId: singleSenderId,
+          recipient: normalizedRecipient,
+          subject: singleSubject.trim(),
+          content: singleContent.trim(),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to send email.");
+      }
+
+      setMessage(`Email successfully sent to ${normalizedRecipient}!`);
+
+      setRecipient("");
+      setSingleSubject("");
+      setSingleContent("");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Email sending failed."
+      );
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -262,7 +345,6 @@ export default function ComposeCampaign() {
       setSaving(true);
 
       let campaignId = createdCampaignId;
-      let campaignStatus = createdCampaignStatus;
 
       if (!campaignId) {
         const response = await fetch(`${API}/campaigns`, {
@@ -291,10 +373,9 @@ export default function ComposeCampaign() {
         }
 
         campaignId = result.data.id;
-        campaignStatus = result.data.status;
 
         setCreatedCampaignId(campaignId);
-        setCreatedCampaignStatus(campaignStatus);
+        setCreatedCampaignStatus(result.data.status);
       }
 
       const uploadResult = await uploadRecipients(campaignId);
@@ -307,12 +388,10 @@ export default function ComposeCampaign() {
       setSubject("");
       setContent("");
       setScheduledAt("");
-      setSenderId("");
       resetFile();
 
       setCreatedCampaignId("");
       setCreatedCampaignStatus("");
-
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -326,8 +405,7 @@ export default function ComposeCampaign() {
     .toISOString()
     .slice(0, 16);
 
-  const inputStyle =
-    "field mt-2";
+  const inputStyle = "field mt-2";
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -339,17 +417,37 @@ export default function ComposeCampaign() {
           <ArrowLeft size={15} /> Back to dashboard
         </Link>
 
-        <h1 className="text-2xl font-semibold">Create campaign</h1>
+        <h1 className="text-2xl font-semibold">Compose Email</h1>
 
         <p className="muted mt-2 text-sm">
-          Compose your message or add recipients to an existing draft.
+          Send an individual email or create a bulk campaign.
         </p>
       </div>
 
-      <section className="panel p-5 md:p-6 space-y-4">
+      <section className="panel space-y-4 p-5 md:p-6">
         <h2 className="font-semibold">Choose an action</h2>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <button
+            type="button"
+            onClick={() => {
+              setMode("single");
+              setError("");
+              setMessage("");
+            }}
+            className={`rounded-xl border p-4 text-left transition ${
+              mode === "single"
+                ? "border-violet-500 bg-violet-500/10"
+                : "border-[#414760] hover:border-violet-400"
+            }`}
+          >
+            <Mail className="mb-2 text-violet-300" size={22} />
+            <p className="font-medium">Send Single Email</p>
+            <p className="muted mt-1 text-xs">
+              Send directly without uploading CSV.
+            </p>
+          </button>
+
           <button
             type="button"
             onClick={() => {
@@ -392,7 +490,94 @@ export default function ComposeCampaign() {
         </div>
       </section>
 
-      {mode === "new" ? (
+      {mode === "single" ? (
+        <section className="panel space-y-5 p-5 md:p-6">
+          <div>
+            <h2 className="font-semibold">Send a single email</h2>
+            <p className="muted mt-1 text-xs">
+              Enter any recipient address and send directly.
+            </p>
+          </div>
+
+          <label className="block text-sm">
+            Select email sender
+            <select
+              className={inputStyle}
+              value={singleSenderId}
+              onChange={(e) => setSingleSenderId(e.target.value)}
+              disabled={loadingSenders}
+            >
+              <option value="">
+                {loadingSenders ? "Loading senders..." : "Select sender"}
+              </option>
+
+              {senders.map((sender) => (
+                <option key={sender.id} value={sender.id}>
+                  {sender.name} ({sender.email})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {!loadingSenders && senders.length === 0 && (
+            <p className="text-sm text-red-400">
+              No connected sender found. Please connect a sender first.
+            </p>
+          )}
+
+          <label className="block text-sm">
+            Recipient email
+            <input
+              type="email"
+              className={inputStyle}
+              placeholder="example@gmail.com"
+              value={recipient}
+              onChange={(e) => setRecipient(e.target.value)}
+            />
+          </label>
+
+          <label className="block text-sm">
+            Email subject
+            <input
+              className={inputStyle}
+              placeholder="Enter email subject"
+              value={singleSubject}
+              onChange={(e) => setSingleSubject(e.target.value)}
+            />
+          </label>
+
+          <label className="block text-sm">
+            Email message
+            <textarea
+              className={`${inputStyle} min-h-[170px] resize-y`}
+              placeholder="Write your email message here..."
+              value={singleContent}
+              onChange={(e) => setSingleContent(e.target.value)}
+            />
+          </label>
+
+          <div className="flex justify-end">
+            <button
+              type="button"
+              className="btn-primary inline-flex items-center justify-center gap-2"
+              onClick={() => void handleSingleEmail()}
+              disabled={saving || loadingSenders || senders.length === 0}
+            >
+              {saving ? (
+                <>
+                  <Loader2 size={15} className="animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Send size={15} />
+                  Send Email
+                </>
+              )}
+            </button>
+          </div>
+        </section>
+      ) : mode === "new" ? (
         <>
           <section className="panel space-y-5 p-5 md:p-6">
             <div>
@@ -503,7 +688,7 @@ export default function ComposeCampaign() {
                 <option value="">
                   {loadingSenders
                     ? "Loading senders..."
-                    : "Select a connected Gmail account"}
+                    : "Select a connected email account"}
                 </option>
 
                 {senders.map((sender) => (
@@ -585,7 +770,9 @@ export default function ComposeCampaign() {
               disabled={loadingCampaigns}
             >
               <option value="">
-                {loadingCampaigns ? "Loading campaigns..." : "Choose a Draft campaign"}
+                {loadingCampaigns
+                  ? "Loading campaigns..."
+                  : "Choose a Draft campaign"}
               </option>
 
               {campaigns.map((campaign) => (

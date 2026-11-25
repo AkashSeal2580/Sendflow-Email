@@ -15,9 +15,16 @@ export async function register(req: Request, res: Response) {
     const message =
       error instanceof Error ? error.message : "Registration failed";
 
-    const status = message === "Email already registered" ? 409 : 400;
+    if (message === "Email already registered") {
+      return res.status(409).json({
+        success: false,
+        message,
+      });
+    }
 
-    return res.status(status).json({
+    console.error("Registration error:", error);
+
+    return res.status(400).json({
       success: false,
       message,
     });
@@ -37,9 +44,21 @@ export async function login(req: Request, res: Response) {
     const message =
       error instanceof Error ? error.message : "Login failed";
 
-    return res.status(401).json({
+    if (
+      message === "Invalid email or password" ||
+      message === "User not found"
+    ) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password",
+      });
+    }
+
+    console.error("Login error:", error);
+
+    return res.status(500).json({
       success: false,
-      message,
+      message: "Internal server error",
     });
   }
 }
