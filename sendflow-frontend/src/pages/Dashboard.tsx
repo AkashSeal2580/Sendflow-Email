@@ -58,14 +58,18 @@ export default function Dashboard() {
         throw new Error("Please login again.");
       }
 
-      const response = await fetch(
-       `${import.meta.env.VITE_API_BASE_URL || "https://sendflow-email.onrender.com/api"}/emails/stats`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      const API_BASE = (
+        import.meta.env.VITE_API_BASE_URL ||
+        "https://sendflow-email.onrender.com"
+      )
+        .replace(/\/+$/, "")
+        .replace(/\/api$/, "");
+
+      const response = await fetch(`${API_BASE}/api/emails/stats`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
       const text = await response.text();
 
@@ -75,7 +79,7 @@ export default function Dashboard() {
         result = JSON.parse(text);
       } catch {
         throw new Error(
-          `API returned HTML instead of JSON. Check API URL. Response: ${text.slice(0, 100)}`
+          `API returned HTML instead of JSON. Response: ${text.slice(0, 100)}`
         );
       }
 
